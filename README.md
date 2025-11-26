@@ -37,16 +37,8 @@ AutoVibe isn't just a simple timer. It uses a robust background service architec
 -   **Framework**: Flutter (Dart)
 -   **Native Integration**: Kotlin (Android Method Channels)
 -   **Background Processing**: `android_alarm_manager_plus`
--   **State Management**: `setState` (Keep it simple!)
+-   **State Management**: `setState` 
 -   **Storage**: `shared_preferences`
-
----
-
-## 📸 Screenshots
-
-| Dashboard | Create Schedule | Settings |
-|:---:|:---:|:---:|
-| *(Add Screenshot)* | *(Add Screenshot)* | *(Add Screenshot)* |
 
 ---
 
