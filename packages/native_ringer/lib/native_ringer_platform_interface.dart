@@ -35,6 +35,10 @@ abstract class NativeRingerPlatform extends PlatformInterface {
     throw UnimplementedError('requestBatteryOptimization() has not been implemented.');
   }
 
+  Future<bool?> isIgnoringBatteryOptimizations() {
+    throw UnimplementedError('isIgnoringBatteryOptimizations() has not been implemented.');
+  }
+
   Future<void> setRingerMode(bool vibrate) {
     throw UnimplementedError('setRingerMode() has not been implemented.');
   }

@@ -39,8 +39,8 @@ Future<void> alarmCallback(int id) async {
   // We have to re-calculate hash for all schedules and see which one matches.
   
   for (var s in schedules) {
-    final startId = s.id.hashCode & 0x7FFFFFFF;
-    final endId = (s.id.hashCode + 1) & 0x7FFFFFFF;
+    final startId = s.alarmId;
+    final endId = s.alarmId + 1;
     
     if (startId == id) {
       matchedSchedule = s;
@@ -86,7 +86,7 @@ Future<void> alarmCallback(int id) async {
       alarmCallback,
       exact: true,
       wakeup: true,
-      allowWhileIdle: true, // Critical for Doze mode
+      alarmClock: true, // Bypasses Doze quota
       rescheduleOnReboot: false,
     );
   } catch (e) {
@@ -129,23 +129,72 @@ class SchedulerService {
   }
 
   Future<void> scheduleAlarms(List<Schedule> schedules) async {
+    await LoggerService.log("--- Scheduling ${schedules.length} schedules ---");
+    
+    bool isCurrentlyActive = false;
+
     for (var schedule in schedules) {
       if (!schedule.isEnabled) {
+        await LoggerService.log("Skipping disabled schedule: ${schedule.name} (${schedule.alarmId})");
         await cancelSchedule(schedule);
         continue;
       }
 
-      final int startId = _getStartAlarmId(schedule.id);
-      final int endId = _getEndAlarmId(schedule.id);
+      // Check if we should be active RIGHT NOW
+      if (_isAppInScheduleWindow(schedule)) {
+        await LoggerService.log("CURRENTLY IN WINDOW for '${schedule.name}' -> Activating Vibrate NOW");
+        final nativeService = NativeService();
+        await nativeService.setRingerMode(true);
+        isCurrentlyActive = true;
+      }
+
+      final int startId = schedule.alarmId;
+      final int endId = schedule.alarmId + 1;
+      
+      await LoggerService.log("Scheduling '${schedule.name}': StartID=$startId, EndID=$endId");
 
       await _scheduleOne(startId, schedule.startTime);
       await _scheduleOne(endId, schedule.endTime);
     }
+    
+    if (!isCurrentlyActive) {
+       await LoggerService.log("No active schedules found for current time.");
+    }
+
+    await LoggerService.log("--- Scheduling Complete ---");
+  }
+
+  bool _isAppInScheduleWindow(Schedule schedule) {
+    final now = DateTime.now();
+    
+    // 1. Check Day
+    final currentDayIndex = now.weekday - 1; // Mon=0
+    if (!schedule.days[currentDayIndex]) return false;
+
+    // 2. Check Time
+    final start = schedule.startTime;
+    final end = schedule.endTime;
+    
+    final nowMinutes = now.hour * 60 + now.minute;
+    final startMinutes = start.hour * 60 + start.minute;
+    final endMinutes = end.hour * 60 + end.minute;
+
+    // LoggerService.log("Checking Window for ${schedule.name}: Now=$nowMinutes, Start=$startMinutes, End=$endMinutes");
+
+    if (startMinutes < endMinutes) {
+      // Normal day schedule (e.g. 10:00 to 12:00)
+      return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+    } else {
+      // Overnight schedule (e.g. 23:00 to 07:00)
+      // Active if after start (23:00+) OR before end (00:00 - 06:59)
+      return nowMinutes >= startMinutes || nowMinutes < endMinutes;
+    }
   }
 
   Future<void> cancelSchedule(Schedule schedule) async {
-    await AndroidAlarmManager.cancel(_getStartAlarmId(schedule.id));
-    await AndroidAlarmManager.cancel(_getEndAlarmId(schedule.id));
+    await LoggerService.log("Cancelling schedule '${schedule.name}' (IDs: ${schedule.alarmId}, ${schedule.alarmId + 1})");
+    await AndroidAlarmManager.cancel(schedule.alarmId);
+    await AndroidAlarmManager.cancel(schedule.alarmId + 1);
   }
 
   Future<void> _scheduleOne(int id, TimeOfDay time) async {
@@ -155,7 +204,7 @@ class SchedulerService {
       dateTime = dateTime.add(const Duration(days: 1));
     }
 
-    await LoggerService.log("Scheduling OneShot $id at $dateTime");
+    await LoggerService.log("Scheduling (AlarmClock) $id at $dateTime");
 
     // Ensure no conflict
     await AndroidAlarmManager.cancel(id);
@@ -166,13 +215,12 @@ class SchedulerService {
       alarmCallback,
       exact: true,
       wakeup: true,
-      allowWhileIdle: true, // Critical for Doze mode
+      alarmClock: true, // Bypasses Doze quota
       rescheduleOnReboot: false,
     );
   }
 
-  int _getStartAlarmId(String uuid) => (uuid.hashCode & 0x7FFFFFFF);
-  int _getEndAlarmId(String uuid) => ((uuid.hashCode + 1) & 0x7FFFFFFF);
+  // Helper methods removed as we use alarmId directly
 
   Future<void> scheduleTestAlarm() async {
     final int testId = 999999;

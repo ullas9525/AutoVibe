@@ -15,6 +15,11 @@ class NativeRinger {
     await NativeRingerPlatform.instance.requestBatteryOptimization();
   }
 
+  Future<bool> isIgnoringBatteryOptimizations() async {
+    final bool? result = await NativeRingerPlatform.instance.isIgnoringBatteryOptimizations();
+    return result ?? true; // Default to true if platform doesn't support (e.g. old Android)
+  }
+
   Future<void> setRingerMode(bool vibrate) async {
     await NativeRingerPlatform.instance.setRingerMode(vibrate);
   }

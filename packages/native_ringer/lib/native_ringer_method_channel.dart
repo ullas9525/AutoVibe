@@ -26,6 +26,11 @@ class MethodChannelNativeRinger extends NativeRingerPlatform {
   }
 
   @override
+  Future<bool?> isIgnoringBatteryOptimizations() async {
+    return await methodChannel.invokeMethod<bool>('isIgnoringBatteryOptimizations');
+  }
+
+  @override
   Future<void> setRingerMode(bool vibrate) async {
     await methodChannel.invokeMethod<void>('setRingerMode', {
       'mode': vibrate ? 'vibrate' : 'normal',

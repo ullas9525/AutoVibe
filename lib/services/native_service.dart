@@ -15,6 +15,10 @@ class NativeService {
     await _ringer.requestBatteryOptimization();
   }
 
+  Future<bool> isIgnoringBatteryOptimizations() async {
+    return await _ringer.isIgnoringBatteryOptimizations();
+  }
+
   Future<void> setRingerMode(bool vibrate) async {
     await _ringer.setRingerMode(vibrate);
   }

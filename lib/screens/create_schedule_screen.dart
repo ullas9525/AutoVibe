@@ -3,6 +3,7 @@ import 'package:autovibe/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+import 'dart:math';
 
 class CreateScheduleScreen extends StatefulWidget {
   final Schedule? existingSchedule;
@@ -164,6 +165,9 @@ class _CreateScheduleScreenState extends State<CreateScheduleScreen> {
       return;
     }
 
+    // Generate a new even ID for fresh schedules to allow +1 for end alarm
+    final int newAlarmId = Random().nextInt(0x3FFFFFFF) * 2;
+
     final schedule = Schedule(
       id: widget.existingSchedule?.id ?? const Uuid().v4(),
       name: _nameController.text,
@@ -171,6 +175,7 @@ class _CreateScheduleScreenState extends State<CreateScheduleScreen> {
       endTime: _endTime,
       days: _days,
       isEnabled: widget.existingSchedule?.isEnabled ?? true,
+      alarmId: widget.existingSchedule?.alarmId ?? newAlarmId,
     );
 
     Navigator.pop(context, schedule);

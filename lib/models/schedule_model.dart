@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 
 class Schedule {
@@ -8,6 +9,7 @@ class Schedule {
   final TimeOfDay endTime;
   final List<bool> days; // Mon-Sun
   final bool isEnabled;
+  final int alarmId; // Persistent ID for AlarmManager
 
   Schedule({
     required this.id,
@@ -16,6 +18,7 @@ class Schedule {
     required this.endTime,
     required this.days,
     this.isEnabled = true,
+    required this.alarmId,
   });
 
   Map<String, dynamic> toMap() {
@@ -26,6 +29,7 @@ class Schedule {
       'endTime': {'hour': endTime.hour, 'minute': endTime.minute},
       'days': days,
       'isEnabled': isEnabled,
+      'alarmId': alarmId,
     };
   }
 
@@ -43,6 +47,8 @@ class Schedule {
       ),
       days: List<bool>.from(map['days']),
       isEnabled: map['isEnabled'] ?? true,
+      // Migration: If alarmId is missing, generate a random one (safe for 32-bit)
+      alarmId: map['alarmId'] ?? Random().nextInt(0x7FFFFFFF),
     );
   }
 

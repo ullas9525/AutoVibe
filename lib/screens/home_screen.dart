@@ -24,11 +24,13 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _dndGranted = false;
   List<Schedule> _schedules = [];
   bool _testToggleState = false; // For manual testing
+  bool _isBatteryOptimized = false;
 
   @override
   void initState() {
     super.initState();
     _checkDnd();
+    _checkBatteryOptimization();
     _loadSchedules();
   }
 
@@ -36,6 +38,15 @@ class _HomeScreenState extends State<HomeScreen> {
     final granted = await _nativeService.checkDndPermission();
     setState(() {
       _dndGranted = granted;
+    });
+  }
+
+  Future<void> _checkBatteryOptimization() async {
+    // Returns true if IGNORING optimization (good).
+    // So if it returns false, we are OPTIMIZED (bad).
+    final isIgnoring = await _nativeService.isIgnoringBatteryOptimizations();
+    setState(() {
+      _isBatteryOptimized = !isIgnoring;
     });
   }
 
@@ -60,7 +71,15 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     }
     await _prefsService.saveSchedules(_schedules);
-    await _loadSchedules();
+    
+    // Force Sync immediately
+    await _schedulerService.scheduleAlarms(_schedules);
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Schedule Saved & Synced!')),
+      );
+    }
   }
 
   Future<void> _deleteSchedule(Schedule schedule) async {
@@ -68,7 +87,18 @@ class _HomeScreenState extends State<HomeScreen> {
       _schedules.removeWhere((s) => s.id == schedule.id);
     });
     await _prefsService.saveSchedules(_schedules);
+    
+    // Cancel specific alarm first (good practice)
     await _schedulerService.cancelSchedule(schedule);
+    
+    // Force Sync remaining alarms to ensure state is correct
+    await _schedulerService.scheduleAlarms(_schedules);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Schedule Deleted & Synced!')),
+      );
+    }
   }
 
   @override
@@ -121,25 +151,47 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           _buildStatusCard(),
-          const SizedBox(height: 16),
-          Center(
-            child: ElevatedButton.icon(
-              onPressed: () async {
-                await _schedulerService.scheduleTestAlarm();
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Test Alarm Scheduled! Wait 10 seconds...')),
-                  );
-                }
-              },
-              icon: const Icon(Icons.timer),
-              label: const Text("Test Alarm (10s)"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.amber,
-                foregroundColor: Colors.black,
+          if (_isBatteryOptimized)
+            Container(
+              margin: const EdgeInsets.only(top: 16),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red.withOpacity(0.5)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.battery_alert, color: Colors.red),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "Battery Optimization Detected",
+                          style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          "Alarms may not fire reliably. Please disable optimization.",
+                          style: TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      await _nativeService.requestBatteryOptimization();
+                      // Wait a bit and recheck
+                      await Future.delayed(const Duration(seconds: 2));
+                      _checkBatteryOptimization();
+                    },
+                    child: const Text("FIX"),
+                  ),
+                ],
               ),
             ),
-          ),
           const SizedBox(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -314,6 +366,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     endTime: schedule.endTime,
                     days: schedule.days,
                     isEnabled: val,
+                    alarmId: schedule.alarmId,
                   );
                   _saveSchedule(updated);
                 },

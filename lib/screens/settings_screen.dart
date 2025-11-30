@@ -1,4 +1,6 @@
 import 'package:autovibe/services/native_service.dart';
+import 'package:autovibe/services/preferences_service.dart';
+import 'package:autovibe/services/scheduler_service.dart';
 import 'package:autovibe/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -86,6 +88,52 @@ class SettingsScreen extends StatelessWidget {
                   title: const Text('Debug Logs', style: TextStyle(color: Colors.white)),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
                   onTap: () => _showLogs(context),
+                ),
+                const Divider(height: 1, color: Colors.white10),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.sync, color: Colors.blue),
+                  ),
+                  title: const Text('Force Schedule Sync', style: TextStyle(color: Colors.white)),
+                  subtitle: const Text('Re-schedule all active alarms', style: TextStyle(color: Colors.grey, fontSize: 10)),
+                  onTap: () async {
+                    final prefs = PreferencesService();
+                    final scheduler = SchedulerService();
+                    final schedules = await prefs.loadSchedules();
+                    await scheduler.scheduleAlarms(schedules);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Schedules Synced! Check Logs.')),
+                      );
+                    }
+                  },
+                ),
+                const Divider(height: 1, color: Colors.white10),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.timer, color: Colors.amber),
+                  ),
+                  title: const Text('Test Alarm (10s)', style: TextStyle(color: Colors.white)),
+                  subtitle: const Text('Verify AlarmClock', style: TextStyle(color: Colors.grey, fontSize: 10)),
+                  onTap: () async {
+                    final scheduler = SchedulerService();
+                    await scheduler.scheduleTestAlarm();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Test Alarm Scheduled! Wait 10s...')),
+                      );
+                    }
+                  },
                 ),
               ],
             ),

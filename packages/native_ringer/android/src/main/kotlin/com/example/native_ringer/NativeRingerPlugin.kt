@@ -44,10 +44,21 @@ class NativeRingerPlugin :
                     result.error("INVALID_ARGUMENT", "Mode is required", null)
                 }
             }
+            "isIgnoringBatteryOptimizations" -> {
+                result.success(isIgnoringBatteryOptimizations())
+            }
             else -> {
                 result.notImplemented()
             }
         }
+    }
+
+    private fun isIgnoringBatteryOptimizations(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            val powerManager = context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+            return powerManager.isIgnoringBatteryOptimizations(context.packageName)
+        }
+        return true
     }
 
     private fun checkDndPermission(): Boolean {
