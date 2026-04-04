@@ -83,21 +83,59 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _deleteSchedule(Schedule schedule) async {
+    // Check if we're currently in this schedule's active window BEFORE deleting.
+    // If so, we need to restore normal ringer mode after cancelling.
+    final wasInActiveWindow = _isScheduleCurrentlyActive(schedule);
+
     setState(() {
       _schedules.removeWhere((s) => s.id == schedule.id);
     });
     await _prefsService.saveSchedules(_schedules);
     
-    // Cancel specific alarm first (good practice)
+    // Cancel specific alarm first
     await _schedulerService.cancelSchedule(schedule);
     
     // Force Sync remaining alarms to ensure state is correct
     await _schedulerService.scheduleAlarms(_schedules);
 
+    // If the deleted schedule was active, restore normal ringer mode
+    // (unless another schedule is currently active)
+    if (wasInActiveWindow) {
+      bool anotherScheduleActive = false;
+      for (var s in _schedules) {
+        if (s.isEnabled && _isScheduleCurrentlyActive(s)) {
+          anotherScheduleActive = true;
+          break;
+        }
+      }
+      if (!anotherScheduleActive) {
+        await _nativeService.setRingerMode(false);
+      }
+    }
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Schedule Deleted & Synced!')),
       );
+    }
+  }
+
+  /// Checks if a schedule is currently in its active time window.
+  bool _isScheduleCurrentlyActive(Schedule schedule) {
+    if (!schedule.isEnabled) return false;
+
+    final now = DateTime.now();
+    final currentDayIndex = now.weekday - 1; // Mon=0
+    if (!schedule.days[currentDayIndex]) return false;
+
+    final nowMinutes = now.hour * 60 + now.minute;
+    final startMinutes = schedule.startTime.hour * 60 + schedule.startTime.minute;
+    final endMinutes = schedule.endTime.hour * 60 + schedule.endTime.minute;
+
+    if (startMinutes < endMinutes) {
+      return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+    } else {
+      return nowMinutes >= startMinutes || nowMinutes < endMinutes;
     }
   }
 

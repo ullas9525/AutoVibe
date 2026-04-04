@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 @pragma('vm:entry-point')
 Future<void> alarmCallback(int id) async {
   WidgetsFlutterBinding.ensureInitialized();
+
   await LoggerService.log("Alarm Fired: ID $id");
   
   final nativeService = NativeService();
@@ -34,10 +35,6 @@ Future<void> alarmCallback(int id) async {
   Schedule? matchedSchedule;
   bool isStart = false;
 
-  // We need to match the ID. Since we mask IDs now, we need to be careful.
-  // But wait, we can't easily reverse the hash.
-  // We have to re-calculate hash for all schedules and see which one matches.
-  
   for (var s in schedules) {
     final startId = s.alarmId;
     final endId = s.alarmId + 1;
@@ -54,16 +51,16 @@ Future<void> alarmCallback(int id) async {
   }
 
   if (matchedSchedule == null) {
-    await LoggerService.log("No matching schedule for ID $id");
+    await LoggerService.log("No matching schedule for ID $id. Schedule may have been deleted. Skipping.");
     return;
   }
 
   if (!matchedSchedule.isEnabled) {
-    await LoggerService.log("Schedule ${matchedSchedule.name} disabled");
+    await LoggerService.log("Schedule ${matchedSchedule.name} disabled. Skipping.");
     return;
   }
 
-  // --- RESCHEDULE FOR NEXT DAY (Recursive Loop) ---
+  // --- RESCHEDULE FOR NEXT DAY (Recurring Loop) ---
   try {
     final time = isStart ? matchedSchedule.startTime : matchedSchedule.endTime;
     final now = DateTime.now();
@@ -78,8 +75,11 @@ Future<void> alarmCallback(int id) async {
        nextDateTime = nextDateTime.add(const Duration(days: 1));
     }
 
-    await LoggerService.log("Rescheduling $id for $nextDateTime");
+    await LoggerService.log("Rescheduling alarm ID $id for $nextDateTime");
     
+    // Cancel any existing alarm with this ID first (safety)
+    await AndroidAlarmManager.cancel(id);
+
     await AndroidAlarmManager.oneShot(
       nextDateTime.difference(now), 
       id,
@@ -89,8 +89,9 @@ Future<void> alarmCallback(int id) async {
       alarmClock: true, // Bypasses Doze quota
       rescheduleOnReboot: false,
     );
+    await LoggerService.log("Rescheduled alarm ID $id successfully");
   } catch (e) {
-    await LoggerService.log("Failed to reschedule: $e");
+    await LoggerService.log("Failed to reschedule alarm ID $id: $e");
   }
   // ------------------------------------------------
 
@@ -119,6 +120,8 @@ Future<void> alarmCallback(int id) async {
 }
 
 class SchedulerService {
+  final PreferencesService _prefsService = PreferencesService();
+
   Future<void> initialize() async {
     try {
       final bool success = await AndroidAlarmManager.initialize();
@@ -128,14 +131,42 @@ class SchedulerService {
     }
   }
 
+  /// Cancels ALL previously tracked alarm IDs from the Android system.
+  /// This ensures that stale alarms from deleted schedules are cleaned up.
+  Future<void> cancelAllStaleAlarms() async {
+    final staleIds = await _prefsService.loadActiveAlarmIds();
+    if (staleIds.isEmpty) {
+      await LoggerService.log("No stale alarm IDs to cancel.");
+      return;
+    }
+    await LoggerService.log("Cancelling ${staleIds.length} stale alarm IDs: $staleIds");
+    for (final id in staleIds) {
+      try {
+        await AndroidAlarmManager.cancel(id);
+      } catch (e) {
+        await LoggerService.log("Failed to cancel stale alarm ID $id: $e");
+      }
+    }
+    // Clear the stored IDs since they're all cancelled now
+    await _prefsService.saveActiveAlarmIds([]);
+    await LoggerService.log("All stale alarms cancelled and ID list cleared.");
+  }
+
   Future<void> scheduleAlarms(List<Schedule> schedules) async {
     await LoggerService.log("--- Scheduling ${schedules.length} schedules ---");
     
+    // CRITICAL FIX: Cancel ALL previously registered alarm IDs first.
+    // This ensures that alarms from deleted schedules are cleaned up,
+    // preventing ghost alarms from interfering with new schedules.
+    await cancelAllStaleAlarms();
+
     bool isCurrentlyActive = false;
+    List<int> newActiveIds = [];
 
     for (var schedule in schedules) {
       if (!schedule.isEnabled) {
         await LoggerService.log("Skipping disabled schedule: ${schedule.name} (${schedule.alarmId})");
+        // Still cancel its alarms explicitly (belt and suspenders)
         await cancelSchedule(schedule);
         continue;
       }
@@ -155,7 +186,15 @@ class SchedulerService {
 
       await _scheduleOne(startId, schedule.startTime);
       await _scheduleOne(endId, schedule.endTime);
+
+      // Track these IDs so we can cancel them later if the schedule is deleted
+      newActiveIds.add(startId);
+      newActiveIds.add(endId);
     }
+
+    // Persist active alarm IDs for future cleanup
+    await _prefsService.saveActiveAlarmIds(newActiveIds);
+    await LoggerService.log("Saved ${newActiveIds.length} active alarm IDs: $newActiveIds");
     
     if (!isCurrentlyActive) {
        await LoggerService.log("No active schedules found for current time.");
@@ -179,14 +218,11 @@ class SchedulerService {
     final startMinutes = start.hour * 60 + start.minute;
     final endMinutes = end.hour * 60 + end.minute;
 
-    // LoggerService.log("Checking Window for ${schedule.name}: Now=$nowMinutes, Start=$startMinutes, End=$endMinutes");
-
     if (startMinutes < endMinutes) {
       // Normal day schedule (e.g. 10:00 to 12:00)
       return nowMinutes >= startMinutes && nowMinutes < endMinutes;
     } else {
       // Overnight schedule (e.g. 23:00 to 07:00)
-      // Active if after start (23:00+) OR before end (00:00 - 06:59)
       return nowMinutes >= startMinutes || nowMinutes < endMinutes;
     }
   }
@@ -204,9 +240,9 @@ class SchedulerService {
       dateTime = dateTime.add(const Duration(days: 1));
     }
 
-    await LoggerService.log("Scheduling (AlarmClock) $id at $dateTime");
+    await LoggerService.log("Scheduling (AlarmClock) ID $id at $dateTime");
 
-    // Ensure no conflict
+    // Ensure no conflict — cancel any existing alarm with this ID
     await AndroidAlarmManager.cancel(id);
 
     await AndroidAlarmManager.oneShot(
@@ -219,8 +255,6 @@ class SchedulerService {
       rescheduleOnReboot: false,
     );
   }
-
-  // Helper methods removed as we use alarmId directly
 
   Future<void> scheduleTestAlarm() async {
     final int testId = 999999;
